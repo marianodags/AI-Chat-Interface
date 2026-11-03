@@ -166,6 +166,41 @@ def agent_session(data):
         raise AgentError('Invalid session')
     return value
 
+
+@app.get('/api/workspace/list')
+def workspace_list():
+    """Read-only explorer; use the same restricted paths as the agent."""
+    try:
+        value = request.args.get('path', '.')
+        result = agent_engine.tool('list_files', {'path': value})
+        entries = []
+        for item in result.splitlines():
+            if item == '(empty)':
+                continue
+            is_dir = item.endswith('/')
+            name = item[:-1] if is_dir else item
+            if not is_dir:
+                # Exclude file types the editor will not allow opening.
+                try:
+                    agent_engine._path(str(Path(value) / name))
+                except (AgentError, OSError):
+                    continue
+            entries.append({'name': name, 'directory': is_dir})
+        return jsonify({'entries': entries, 'path': value,
+                        'workspace': agent_engine.workspace.name})
+    except (AgentError, OSError, ValueError) as exc:
+        return jsonify({'error': str(exc)}), 400
+
+@app.get('/api/workspace/read')
+def workspace_read():
+    """Never return secrets, hidden files, or files outside agent workspace."""
+    try:
+        value = request.args.get('path', '')
+        content = agent_engine.tool('read_file', {'path': value})
+        return jsonify({'path': value, 'content': content})
+    except (AgentError, OSError, UnicodeError, ValueError) as exc:
+        return jsonify({'error': str(exc)}), 400
+
 @app.post('/api/agent/start')
 def agent_start():
     try:

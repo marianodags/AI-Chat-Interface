@@ -1,11 +1,98 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AI Chat + Terminal</title><link rel="stylesheet" href="/static/css/style.css"></head>
-<body><main class="workspace"><header class="top"><div><strong>LOCAL STUDIO</strong><span class="subtitle">AI assistant &amp; safe terminal</span></div><nav><button id="historyBtn">Chat history</button><button id="settingsBtn">Settings</button></nav></header>
-<div class="panes"><section class="pane" aria-label="CMD and PowerShell terminal"><div class="panehead"><div><span class="dot green"></span><strong>Terminal</strong><small>CMD / PowerShell · safe commands</small></div><button id="clearTerminal">Clear</button></div><div id="terminalOutput" class="log terminal-log" role="log" aria-live="polite"><p class="muted">Safe command mode. Type <b>help</b> to see supported commands. Arbitrary shell execution is disabled.</p></div><form id="terminalForm" class="composer"><label for="terminalInput" class="prompt-mark">❯</label><input id="terminalInput" autocomplete="off" spellcheck="false" placeholder="Enter terminal command" autofocus><button type="submit">Run</button></form><footer><span id="terminalStatus">● Ready</span><span>Read-only allowlist</span></footer></section>
-<section class="pane" aria-label="AI chat"><div class="panehead"><div><span class="dot purple"></span><strong>AI Chat</strong><small>FreeLLMAPI</small></div><button id="clearChat">Clear view</button></div><div class="model-picker"><label for="modelSelect">Ready model</label><select id="modelSelect" aria-label="Ready AI model"><option value="">Loading ready models…</option></select><button type="button" id="refreshModels" title="Refresh available models">↻ Refresh</button></div><div id="modelError" class="model-error" role="status" aria-live="polite"></div><section id="agentPanel" class="agent-panel" aria-label="Supervised AI agent">
-<div class="agent-heading"><strong>🧭 Supervised Agent</strong><span id="agentState">Idle</span></div>
-<p class="agent-hint">Inspect project files automatically. Every file edit or test run requires your approval. Tests may execute arbitrary project code.</p>
-<form id="agentForm" class="agent-form"><label for="agentGoal" class="sr-only">Agent task</label><textarea id="agentGoal" rows="2" maxlength="4000" placeholder="e.g. Inspect app.py and suggest a safe improvement"></textarea><button id="agentStart" type="submit">Run agent</button></form>
-<div id="agentActivity" class="agent-activity" role="status" aria-live="polite"></div>
-<div id="agentApproval" class="agent-approval" hidden><strong>Approval required</strong><p id="agentReason"></p><pre id="agentPreview"></pre><div class="agent-actions"><button id="agentReject" type="button">Reject</button><button id="agentApprove" type="button">Approve action</button></div></div></section><div id="chatOutput" class="log chat-log" role="log" aria-live="polite"><p class="muted">Ask the AI a question. Your messages are separate from terminal commands.</p></div><form id="chatForm" class="composer"><label for="chatInput" class="sr-only">AI message</label><textarea id="chatInput" rows="2" placeholder="Ask AI anything… (Enter to send, Shift+Enter for new line)"></textarea><button type="submit">Send</button></form><footer><span id="chatStatus">● Ready</span><span>AI messages never execute commands</span></footer></section></div></main>
-<dialog id="modal"><div class="dialogHeader"><h2 id="modalTitle">History</h2><button id="closeModal" aria-label="Close">✕</button></div><pre id="modalContent"></pre></dialog><script src="/static/js/main.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#181818">
+  <title>AI Chat Interface | Workspace</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="titlebar">
+      <div class="brand"><span class="brand-symbol" aria-hidden="true">⌘</span><strong>AI Chat Interface</strong><span class="title-separator">/</span><span class="title-project">Local Workspace</span></div>
+      <div class="title-search" aria-hidden="true"><span>⌕</span><span>Supervised AI Workspace</span><kbd>Ctrl K</kbd></div>
+      <div class="title-actions"><button id="historyBtn" title="Chat history">History</button><button id="settingsBtn" title="Settings">⚙ Settings</button></div>
+    </header>
+
+    <div class="workbench">
+      <nav class="activity-bar" aria-label="Workspace views">
+        <button class="activity-button active" data-view="explorer" aria-label="Explorer" title="Explorer" aria-pressed="true">▤</button>
+        <button class="activity-button" data-view="agent" aria-label="Agent view" title="Agent" aria-pressed="false">✧</button>
+        <button class="activity-button" data-view="chat" aria-label="Chat view" title="Chat" aria-pressed="false">▣</button>
+        <button class="activity-button" data-view="terminal" aria-label="Terminal view" title="Terminal" aria-pressed="false">⌘</button>
+        <div class="activity-spacer"></div>
+        <button class="activity-button" id="activitySettings" aria-label="Open settings" title="Settings">⚙</button>
+      </nav>
+
+      <aside class="sidebar" id="sidebar" aria-label="Project explorer">
+        <div class="sidebar-heading"><span>EXPLORER</span><button id="refreshFiles" title="Refresh files" aria-label="Refresh files">↻</button></div>
+        <div class="project-header"><span class="chevron">⌄</span><span id="workspaceName">WORKSPACE</span></div>
+        <div id="fileTree" class="file-tree" role="tree" aria-label="Workspace files"><div class="empty-tree">Loading files…</div></div>
+        <div class="sidebar-note">Restricted workspace · Read-only explorer</div>
+      </aside>
+
+      <div class="editor-column">
+        <section class="editor-area" aria-label="Editor">
+          <div class="editor-tabs" role="tablist" aria-label="Editor tabs">
+            <button class="editor-tab selected" id="welcomeTab" role="tab" aria-selected="true" data-editor="welcome"><span class="tab-icon">✧</span> Welcome</button>
+            <button class="editor-tab" id="fileTab" role="tab" aria-selected="false" data-editor="file" hidden><span class="tab-icon">◇</span><span id="fileTabName">File</span></button>
+          </div>
+          <div class="breadcrumbs" id="breadcrumbs">AI Chat Interface <span>›</span> Welcome</div>
+          <div id="welcomeView" class="welcome-view">
+            <div class="welcome-mark">✧</div>
+            <h1>AI Chat Interface</h1>
+            <p>Your local development workspace with supervised AI assistance.</p>
+            <div class="quick-actions">
+              <button data-quick="agent"><span class="quick-icon">✧</span><span><strong>Start an agent task</strong><small>Inspect code and propose changes with approval</small></span><span>↗</span></button>
+              <button data-quick="chat"><span class="quick-icon">▣</span><span><strong>Ask AI</strong><small>Chat with a ready FreeLLMAPI model</small></span><span>↗</span></button>
+              <button data-quick="terminal"><span class="quick-icon">⌘</span><span><strong>Open terminal</strong><small>Run supported read-only commands</small></span><span>↗</span></button>
+            </div>
+            <p class="welcome-footnote">Agent edits and project tests require your approval. The terminal does not execute arbitrary PowerShell or CMD commands.</p>
+          </div>
+          <div id="codeView" class="code-view" hidden><div class="line-gutter" id="lineNumbers" aria-hidden="true"></div><pre id="fileContents" tabindex="0"></pre></div>
+        </section>
+
+        <section class="terminal-panel" id="terminalPanel" aria-label="Safe terminal">
+          <div class="panel-heading">
+            <div class="panel-tabs"><button class="panel-tab selected" id="terminalPanelTab">TERMINAL</button><span class="terminal-label">LOCAL · SAFE MODE</span></div>
+            <div class="panel-actions"><span id="terminalStatus">● Ready</span><button id="clearTerminal" title="Clear terminal">⌫ Clear</button><button id="toggleTerminal" aria-label="Collapse terminal" aria-expanded="true">⌄</button></div>
+          </div>
+          <div class="terminal-body" id="terminalBody">
+            <div id="terminalOutput" class="terminal-log" role="log" aria-live="polite"><p class="muted">Safe command mode. Type <b>help</b> to see supported commands. Arbitrary shell execution is disabled.</p></div>
+            <form id="terminalForm" class="terminal-composer"><label for="terminalInput" class="prompt-mark">❯</label><input id="terminalInput" autocomplete="off" spellcheck="false" placeholder="Enter a supported command"><button type="submit">Run</button></form>
+          </div>
+        </section>
+      </div>
+
+      <aside class="assistant-sidebar" id="assistantSidebar" aria-label="AI assistant">
+        <div class="assistant-top"><div class="assistant-title"><span class="assistant-symbol">✧</span><div><strong>AI ASSISTANT</strong><small>FreeLLMAPI · Supervised</small></div></div><button id="toggleAssistant" aria-label="Collapse assistant" title="Toggle assistant">⋯</button></div>
+        <div class="model-picker"><label for="modelSelect">MODEL</label><div class="model-controls"><select id="modelSelect" aria-label="Ready AI model"><option value="">Loading ready models…</option></select><button type="button" id="refreshModels" title="Refresh ready models" aria-label="Refresh ready models">↻</button></div><div id="modelError" class="model-error" role="status" aria-live="polite"></div></div>
+        <div class="assistant-tabs" role="tablist" aria-label="Assistant mode">
+          <button class="assistant-tab active" id="chatModeTab" data-mode="chat" role="tab" aria-selected="true">Chat</button>
+          <button class="assistant-tab" id="agentModeTab" data-mode="agent" role="tab" aria-selected="false">Agent</button>
+        </div>
+        <section class="assistant-content" id="chatMode" aria-label="AI chat">
+          <div id="chatOutput" class="chat-log" role="log" aria-live="polite"><div class="chat-intro"><span>✧</span><strong>How can I help?</strong><p>Ask questions, explore ideas, and work through problems with your selected model.</p></div></div>
+          <form id="chatForm" class="assistant-composer"><label for="chatInput" class="sr-only">AI message</label><textarea id="chatInput" rows="3" placeholder="Ask AI anything…"></textarea><div class="composer-bottom"><span>Enter to send · Shift+Enter for newline</span><button type="submit">Send ↗</button></div></form>
+          <div class="assistant-footer"><span id="chatStatus">● Ready</span><button id="clearChat">Clear view</button></div>
+        </section>
+        <section class="assistant-content" id="agentMode" aria-label="Supervised AI agent" hidden>
+          <div id="agentPanel" class="agent-panel">
+            <div class="agent-heading"><strong>Supervised Agent</strong><span id="agentState">Idle</span></div>
+            <p class="agent-hint">Inspect workspace files automatically. Edits and test runs require explicit approval.</p>
+            <form id="agentForm" class="agent-form"><label for="agentGoal" class="sr-only">Agent task</label><textarea id="agentGoal" rows="4" maxlength="4000" placeholder="Inspect my Python project and suggest improvements…"></textarea><button id="agentStart" type="submit">▶ Run agent</button></form>
+            <div class="agent-activity-label">ACTIVITY</div><div id="agentActivity" class="agent-activity" role="status" aria-live="polite">No agent tasks yet.</div>
+            <div id="agentApproval" class="agent-approval" hidden><strong>⚠ Approval required</strong><p id="agentReason"></p><pre id="agentPreview"></pre><div class="agent-actions"><button id="agentReject" type="button">Reject</button><button id="agentApprove" type="button">Approve action</button></div></div>
+            <p class="agent-warning">Only approve changes and test execution for projects you trust.</p>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <footer class="status-bar"><div><span>◈ main</span><span>● Localhost</span><span>Restricted workspace</span></div><div><span>UTF-8</span><span>Flask</span><span id="statusModel">FreeLLMAPI</span><span>AI Chat Interface</span></div></footer>
+  </div>
+  <dialog id="modal"><div class="dialogHeader"><h2 id="modalTitle">History</h2><button id="closeModal" aria-label="Close">✕</button></div><pre id="modalContent"></pre></dialog>
+  <script src="/static/js/main.js"></script>
+</body>
+</html>

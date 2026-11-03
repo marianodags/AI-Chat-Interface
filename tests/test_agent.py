@@ -80,3 +80,19 @@ def test_rejects_symlink_escape(tmp_path):
     agent=Agent(tmp_path)
     with pytest.raises(AgentError):
         agent.tool('read_file', {'path':'escape.py'})
+
+def test_workspace_explorer_routes_are_restricted(tmp_path, monkeypatch):
+    import app as dashboard
+    monkeypatch.setattr(dashboard, 'agent_engine', Agent(tmp_path))
+    (tmp_path / 'hello.py').write_text('x = 42', encoding='utf-8')
+    (tmp_path / '.env').write_text('API_KEY=secret', encoding='utf-8')
+    client = dashboard.app.test_client()
+    response = client.get('/api/workspace/list')
+    assert response.status_code == 200
+    assert any(e['name'] == 'hello.py' for e in response.json['entries'])
+    assert not any(e['name'] == '.env' for e in response.json['entries'])
+    response = client.get('/api/workspace/read', query_string={'path': 'hello.py'})
+    assert response.status_code == 200 and response.json['content'] == 'x = 42'
+    assert client.get('/api/workspace/read', query_string={'path': '.env'}).status_code == 400
+    assert client.get('/api/workspace/read', query_string={'path': '../outside.py'}).status_code == 400
+    assert client.get('/api/workspace/list', query_string={'path': '..'}).status_code == 400

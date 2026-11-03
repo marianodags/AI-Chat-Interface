@@ -79,3 +79,133 @@ $('agentReject').addEventListener('click',()=>decideAgent(false));
 fetch('/api/agent/status?session='+encodeURIComponent(session))
  .then(r=>r.ok?r.json():Promise.reject(Error('Agent status unavailable')))
  .then(renderAgent).catch(err=>{$('agentActivity').textContent=err.message;});
+
+/* Workbench navigation and read-only code explorer */
+const workbench=document.querySelector('.workbench');
+const activityButtons=[...document.querySelectorAll('[data-view]')];
+const modeButtons=[...document.querySelectorAll('[data-mode]')];
+function setMode(mode){
+  document.querySelector('#chatMode').hidden=mode!=='chat';
+  document.querySelector('#agentMode').hidden=mode!=='agent';
+  modeButtons.forEach(btn=>{const active=btn.dataset.mode===mode;btn.classList.toggle('active',active);btn.setAttribute('aria-selected',String(active));});
+}
+modeButtons.forEach(btn=>btn.addEventListener('click',()=>setMode(btn.dataset.mode)));
+function showView(view){
+  workbench.classList.remove('show-explorer','show-chat','show-agent','show-terminal');
+  workbench.classList.add('show-'+view);
+  activityButtons.forEach(btn=>{const on=btn.dataset.view===view;btn.classList.toggle('active',on);btn.setAttribute('aria-pressed',String(on));});
+  if(view==='agent'||view==='chat')setMode(view);
+  if(view==='terminal'){$('terminalPanel').classList.remove('collapsed');$('terminalBody').hidden=false;$('toggleTerminal').setAttribute('aria-expanded','true');$('terminalInput').focus();}
+  if(view==='explorer')loadExplorer();
+}
+activityButtons.forEach(btn=>btn.addEventListener('click',()=>{
+  const view=btn.dataset.view;
+  if(window.matchMedia('(min-width:851px)').matches){
+    if(view==='explorer'){workbench.classList.toggle('sidebar-closed');if(!workbench.classList.contains('sidebar-closed'))loadExplorer();}
+    else if(view==='terminal'){$('terminalInput').focus();$('terminalPanel').classList.remove('collapsed');$('terminalBody').hidden=false;}
+    else{workbench.classList.remove('assistant-closed');setMode(view);}
+  }else showView(view);
+  activityButtons.forEach(b=>{const active=b===btn;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});
+}));
+document.querySelectorAll('[data-quick]').forEach(btn=>btn.addEventListener('click',()=>{
+  const view=btn.dataset.quick;
+  if(window.matchMedia('(max-width:850px)').matches)showView(view);
+  else if(view==='terminal'){$('terminalPanel').classList.remove('collapsed');$('terminalBody').hidden=false;$('terminalInput').focus();}
+  else{workbench.classList.remove('assistant-closed');setMode(view);(view==='agent'?$('agentGoal'):$('chatInput')).focus();}
+}));
+$('toggleTerminal').onclick=()=>{
+  const collapsed=$('terminalPanel').classList.toggle('collapsed');
+  $('terminalBody').hidden=collapsed;$('toggleTerminal').setAttribute('aria-expanded',String(!collapsed));
+  $('toggleTerminal').textContent=collapsed?'⌃':'⌄';
+};
+$('toggleAssistant').onclick=()=>{
+  if(window.matchMedia('(max-width:850px)').matches)showView('explorer');
+  else workbench.classList.toggle('assistant-closed');
+};
+$('activitySettings').onclick=()=> $('settingsBtn').click();
+
+let openFile=null;
+function setEditorTab(which){
+  $('welcomeView').hidden=which!=='welcome';
+  $('codeView').hidden=which!=='file';
+  const showFile=which==='file'&&Boolean(openFile);
+  $('fileTab').classList.toggle('selected',showFile);$('fileTab').setAttribute('aria-selected',String(showFile));
+  $('welcomeTab').classList.toggle('selected',!showFile);$('welcomeTab').setAttribute('aria-selected',String(!showFile));
+  $('breadcrumbs').textContent=showFile?'AI Chat Interface › '+openFile:'AI Chat Interface › Welcome';
+}
+$('welcomeTab').addEventListener('click',()=>setEditorTab('welcome'));
+$('fileTab').addEventListener('click',()=>{if(openFile)setEditorTab('file');});
+async function getWorkspace(endpoint,path){
+  const res=await fetch(endpoint+'?path='+encodeURIComponent(path),{cache:'no-store'});
+  const data=await res.json();
+  if(!res.ok)throw Error(data.error||'Workspace request failed');
+  return data;
+}
+async function openWorkspaceFile(path,row){
+  try{
+    const data=await getWorkspace('/api/workspace/read',path);
+    openFile=path;
+    $('fileTab').hidden=false;
+    $('fileTabName').textContent=path.split('/').pop();
+    $('fileContents').textContent=data.content;
+    const lines=data.content.split('\n').length;
+    $('lineNumbers').textContent=Array.from({length:lines},(_,i)=>String(i+1)).join('\n');
+    setEditorTab('file');
+    document.querySelectorAll('.file-entry.active').forEach(e=>e.classList.remove('active'));
+    row.classList.add('active');
+    if(window.matchMedia('(max-width:850px)').matches)showView('editor');
+  }catch(err){show('File unavailable',err.message);}
+}
+async function drawFolder(container,path,depth=0){
+  const data=await getWorkspace('/api/workspace/list',path);
+  if(path==='.')$('workspaceName').textContent=(data.workspace||'WORKSPACE').toUpperCase();
+  const entries=data.entries||[];
+  if(!entries.length){const empty=document.createElement('div');empty.className='empty-tree';empty.textContent='(empty)';container.append(empty);}
+  for(const entry of entries){
+    const full=path==='.'?entry.name:path+'/'+entry.name;
+    const button=document.createElement('button');button.type='button';button.className='file-entry';
+    button.style.paddingLeft=(12+depth*14)+'px';
+    button.setAttribute('role','treeitem');
+    const icon=document.createElement('span');icon.className='file-icon '+(entry.directory?'folder':'file');icon.textContent=entry.directory?'▸':'◇';
+    const label=document.createElement('span');label.textContent=entry.name+(entry.directory?'/':'');
+    button.append(icon,label);container.append(button);
+    if(entry.directory){
+      button.setAttribute('aria-expanded','false');
+      const children=document.createElement('div');children.className='file-nested';children.hidden=true;container.append(children);
+      button.addEventListener('click',async()=>{
+        const expand=button.getAttribute('aria-expanded')!=='true';
+        button.setAttribute('aria-expanded',String(expand));children.hidden=!expand;icon.textContent=expand?'▾':'▸';
+        if(expand&&!children.dataset.loaded){
+          children.textContent='Loading…';
+          try{children.replaceChildren();await drawFolder(children,full,depth+1);children.dataset.loaded='yes';}
+          catch(err){children.textContent='Unable to open: '+err.message;}
+        }
+      });
+    }else button.addEventListener('click',()=>openWorkspaceFile(full,button));
+  }
+}
+let explorerBusy=false;
+async function loadExplorer(){
+  if(explorerBusy)return;
+  explorerBusy=true;
+  $('fileTree').textContent='Loading workspace…';
+  try{$('fileTree').replaceChildren();await drawFolder($('fileTree'),'.');}
+  catch(err){$('fileTree').textContent='Explorer unavailable: '+err.message;}
+  finally{explorerBusy=false;}
+}
+$('refreshFiles').addEventListener('click',loadExplorer);
+loadExplorer();
+$('modelSelect').addEventListener('change',()=>{$('statusModel').textContent=$('modelSelect').value||'FreeLLMAPI';});
+const originalRefresh=$('refreshModels').onclick;
+const modelObserver=new MutationObserver(()=>{
+  $('statusModel').textContent=selectedModel||'FreeLLMAPI';
+});
+modelObserver.observe($('modelSelect'),{childList:true});
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){
+    e.preventDefault();
+    if(window.matchMedia('(max-width:850px)').matches)showView('chat');
+    else setMode('chat');
+    $('chatInput').focus();
+  }
+});

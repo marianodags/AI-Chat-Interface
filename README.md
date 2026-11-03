@@ -54,3 +54,16 @@ python -m pytest -q tests
 ```
 
 Tests verify path restrictions, read tools, required approvals, token validation, rejection, stale-file conflict prevention, and blocked shell commands.
+
+## VS Code-inspired dashboard
+
+The interface now has a desktop editor workbench with an activity bar, restricted file explorer, read-only code preview, welcome actions, docked safe terminal, AI chat/agent tabs, model selector, approvals, and a blue status bar. It is inspired by the arrangement of VS Code, but is **not VS Code** or a full code editor.
+
+- Click files in Explorer for a safe text preview (sensitive files and unsupported extensions are hidden).
+- Use the activity bar to switch Explorer, Chat, Agent and Terminal views; smaller displays show one primary view at a time.
+- Click **Welcome** to return to the start page, or use the agent/chat buttons.
+- Press **Ctrl+K** to focus AI chat.
+- Use the terminal collapse button to make more editor space.
+- File previews are read-only. Agent edits still require explicit diff approval; the safe terminal remains restricted.
+
+UI changes add `GET /api/workspace/list` and `GET /api/workspace/read`, which reuse the agent's restricted workspace and path checks. They do not enable arbitrary file browsing or shell execution.
