@@ -12,7 +12,12 @@ import config
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 sessions = {}
-lock = threading.Lock()
+working_dirs = {}
+lock = threading.RLock()
+
+def working_dir(session_id):
+    with lock:
+        return working_dirs.setdefault(session_id, Path.cwd().resolve())
 
 def stamp():
     return datetime.now(timezone.utc).isoformat()
@@ -78,7 +83,7 @@ def command():
         return jsonify({'error': 'Command too long'}), 400
     name = raw.lower()
     if name == 'help':
-        output = 'Commands: help, clear, history, settings, pwd, date, whoami, dir, ls, ver.'
+        output = 'Commands: help, clear, history, settings, pwd, cd [path], date, whoami, dir, ls, ver. cd is restricted to your home folder.'
     elif name == 'clear':
         messages(sid).clear()
         return jsonify({'output': '', 'clear': True})
@@ -86,14 +91,37 @@ def command():
         output = '\n'.join(f"{m['role']}: {m['content'][:160]}" for m in messages(sid)) or 'No chat history.'
     elif name == 'settings':
         output = f'Model: {config.FREELLMAPI_MODEL}\nEndpoint: {config.FREELLMAPI_BASE_URL}\nShell: safe allowlist'
-    elif name == 'pwd':
-        output = str(Path.cwd())
+    elif name in ('pwd', 'cd'):
+        output = str(working_dir(sid))
+    elif name.startswith('cd '):
+        argument = raw[3:].strip()
+        if len(argument) >= 2 and argument[0] == argument[-1] and argument[0] in ('"', "'"):
+            argument = argument[1:-1]
+        if not argument:
+            output = str(working_dir(sid))
+        else:
+            current = working_dir(sid)
+            target = Path(argument).expanduser()
+            if not target.is_absolute():
+                target = current / target
+            try:
+                target = target.resolve(strict=True)
+                home = Path.home().resolve()
+                if not target.is_relative_to(home):
+                    return jsonify({'error': 'Access denied: cd is limited to your home folder.'}), 403
+                if not target.is_dir():
+                    return jsonify({'error': 'Not a directory.'}), 400
+                with lock:
+                    working_dirs[sid] = target
+                output = str(target)
+            except (OSError, RuntimeError, ValueError):
+                return jsonify({'error': 'Directory not found or inaccessible.'}), 400
     elif name == 'date':
         output = datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')
     elif name == 'whoami':
         output = os.getenv('USERNAME') or os.getenv('USER') or 'local-user'
     elif name in ('dir', 'ls'):
-        output = '\n'.join(sorted(p.name + ('/' if p.is_dir() else '') for p in Path.cwd().iterdir())[:100])
+        output = '\n'.join(sorted(p.name + ('/' if p.is_dir() else '') for p in working_dir(sid).iterdir())[:100])
     elif name == 'ver':
         output = platform.platform()
     else:
