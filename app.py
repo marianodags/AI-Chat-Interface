@@ -8,12 +8,14 @@ from datetime import datetime, timezone
 import requests
 from flask import Flask, jsonify, render_template, request
 import config
+from agent import Agent, AgentError
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 sessions = {}
 working_dirs = {}
 lock = threading.RLock()
+agent_engine = Agent(os.getenv('AGENT_WORKSPACE', str(Path(__file__).resolve().parent)))
 
 def working_dir(session_id):
     with lock:
@@ -156,6 +158,41 @@ def chat():
         log.append({'role': 'user', 'content': message, 'time': stamp()})
         log.append({'role': 'assistant', 'content': answer, 'time': stamp()})
     return jsonify({'reply': answer})
+
+
+def agent_session(data):
+    value = data.get('session', '')
+    if not isinstance(value, str) or not 12 <= len(value) <= 100:
+        raise AgentError('Invalid session')
+    return value
+
+@app.post('/api/agent/start')
+def agent_start():
+    try:
+        data = request.get_json(silent=True) or {}
+        session = agent_session(data)
+        return jsonify(agent_engine.start(session, data.get('goal'), data.get('model')))
+    except AgentError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+@app.post('/api/agent/decision')
+def agent_decision():
+    try:
+        data = request.get_json(silent=True) or {}
+        session = agent_session(data)
+        if type(data.get('approve')) is not bool:
+            raise AgentError('Approve must be true or false')
+        return jsonify(agent_engine.decide(session, data.get('id'), data['approve']))
+    except AgentError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+@app.get('/api/agent/status')
+def agent_status():
+    try:
+        session = agent_session({'session': request.args.get('session')})
+        return jsonify(agent_engine.status(session))
+    except AgentError as exc:
+        return jsonify({'error': str(exc)}), 400
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=int(os.getenv('PORT', '5000')), debug=False, threaded=True)

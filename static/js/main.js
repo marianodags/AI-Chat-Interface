@@ -37,3 +37,45 @@ $('settingsBtn').onclick=async()=>{try{const res=await fetch('/api/settings');if
 $('clearTerminal').onclick=()=>{$('terminalOutput').replaceChildren();$('terminalInput').focus();};
 $('clearChat').onclick=()=>{$('chatOutput').replaceChildren();$('chatInput').focus();};
 $('closeModal').onclick=()=>$('modal').close();
+
+/* The supervised agent is separate from ordinary chat and terminal. */
+let pendingAgent=null,agentBusy=false;
+function renderAgent(data){
+  $('agentState').textContent=data.status||'unknown';
+  const events=(data.events||[]).map(e=>`${e.tool}: ${e.result}`).join('\n\n');
+  $('agentActivity').textContent=[events,data.result||''].filter(Boolean).join('\n\n');
+  pendingAgent=data.pending||null;
+  $('agentApproval').hidden=!pendingAgent;
+  if(pendingAgent){
+    $('agentReason').textContent=pendingAgent.tool+': '+(pendingAgent.reason||'Review this action');
+    $('agentPreview').textContent=pendingAgent.preview||'No preview';
+  }
+  $('agentStart').disabled=agentBusy||data.status==='approval';
+}
+$('agentForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(agentBusy)return;
+  const goal=$('agentGoal').value.trim();
+  if(!goal)return;
+  if(!selectedModel){$('agentActivity').textContent='Select a ready model first.';return;}
+  agentBusy=true;$('agentStart').disabled=true;$('agentState').textContent='Working';
+  $('agentActivity').textContent='Planning and using permitted tools…';
+  $('agentApproval').hidden=true;
+  try{renderAgent(await post('/api/agent/start',{session,goal,model:selectedModel}));}
+  catch(err){$('agentState').textContent='Error';$('agentActivity').textContent=err.message;}
+  finally{agentBusy=false;if(!pendingAgent)$('agentStart').disabled=false;}
+});
+async function decideAgent(approve){
+  if(agentBusy||!pendingAgent)return;
+  const id=pendingAgent.id;
+  agentBusy=true;$('agentApprove').disabled=true;$('agentReject').disabled=true;
+  $('agentState').textContent=approve?'Executing approved action':'Rejecting action';
+  try{renderAgent(await post('/api/agent/decision',{session,id,approve}));}
+  catch(err){$('agentState').textContent='Error';$('agentActivity').textContent=err.message;}
+  finally{agentBusy=false;$('agentApprove').disabled=false;$('agentReject').disabled=false;$('agentStart').disabled=!!pendingAgent;}
+}
+$('agentApprove').addEventListener('click',()=>decideAgent(true));
+$('agentReject').addEventListener('click',()=>decideAgent(false));
+fetch('/api/agent/status?session='+encodeURIComponent(session))
+ .then(r=>r.ok?r.json():Promise.reject(Error('Agent status unavailable')))
+ .then(renderAgent).catch(err=>{$('agentActivity').textContent=err.message;});

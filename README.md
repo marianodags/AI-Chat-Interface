@@ -1,28 +1,56 @@
-# AI Chat + Terminal Dashboard
+# AI Chat Interface — Supervised Agent
 
-Two independent panels: a **safe CMD/PowerShell-style terminal** and **FreeLLMAPI AI chat**.
+A Windows-friendly Flask dashboard with **separate AI chat and safe terminal panels** plus an opt-in **Level 2 Supervised Agent**.
 
-The terminal supports only built-in commands (`help`, `clear`, `history`, `settings`, `pwd`, `date`, `whoami`, `dir`, `ls`, `ver`). It intentionally **does not** run arbitrary CMD or PowerShell commands.
+## Features
 
-## Windows setup
+- FreeLLMAPI chat and ready-only model dropdown (only `execution_status: ready`)
+- Independent terminal with read-only built-ins such as `help`, `pwd`, `dir`, `cd`; no arbitrary CMD/PowerShell execution
+- Agent can `list_files`, `read_file`, and `check_python` automatically
+- **Approval required** for `write_file` (with unified diff preview) and `run_tests`
+- Explicit Reject and Approve buttons, per-session pending tokens, and activity log
+- Restricted workspace, path traversal/symlink checks, hidden/sensitive file exclusions, file-size caps, bounded agent steps, 25-second test timeout
+- API keys stay on the Python server; no key fields in the browser
+
+## Start on Windows
 
 ```powershell
+git clone https://github.com/marianodags/AI-Chat-Interface.git
+cd AI-Chat-Interface
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 Copy-Item .env.example .env
-# Edit .env with your FreeLLMAPI API key and gateway endpoint
+# Edit .env; configure FREELLMAPI_BASE_URL and FREELLMAPI_API_KEY
 python app.py
 ```
 
-Open http://127.0.0.1:5000 locally. Do not expose the Flask development server publicly.
+Open **http://127.0.0.1:5000**. For an existing clone, run `git pull origin main` first.
 
-## Ready-only FreeLLMAPI models
+The default workspace is the app's directory. To point the agent at another trusted project, set `AGENT_WORKSPACE` in `.env` to its absolute directory path and restart the server. The terminal's `cd` command is independent of the agent workspace.
 
-The dropdown fetches /api/models, which proxies the gateway's GET /v1/models with server-side credentials. Only IDs explicitly marked `execution_status: ready` appear. `exhausted`, `needsKey`, and unknown/missing statuses are excluded. Refresh to retrieve current availability.
+```dotenv
+AGENT_WORKSPACE=C:\\Users\\YourName\\Projects\\MyApp
+```
 
-If no models are ready, the dashboard displays an actionable error. Ready status may change before the request completes. This filtering affects the dropdown only: the backend accepts manually supplied model IDs and does not impose fallback routing.
+## Agent workflow
 
-Chat history is in server memory, and is lost on restart. Clear view clears the current display only.
+1. Select a ready FreeLLMAPI model that can reliably follow JSON instructions.
+2. Type a task in **Supervised Agent**, such as “Inspect app.py for syntax problems.”
+3. Read-only tools run automatically inside the configured workspace.
+4. If the agent proposes a file edit, review the complete diff preview. Click **Approve action** or **Reject**.
+5. Test execution always needs separate approval, even though the command is fixed: `python -m pytest -q`.
+6. Inspect the activity log and final result. Every resumed task has a total tool budget.
 
-Store secrets in .env (ignored by Git), never in the browser or repository. Rotate previously exposed keys.
+**Important security limitations:** This is a *supervised local tool runner, not an OS sandbox*. Python tests are executable project code and may access your network or files, so approve them **only for trusted projects**. The app deliberately does not allow unrestricted shell commands, package installation, file deletion, or automatic Git pushes. Keep the Flask app bound to localhost. Approval state and agent history are held in memory and disappear on server restart. Files read by the agent may be sent to the selected external model/provider; do not target projects containing confidential content. Do not allow untrusted users access to this dashboard.
+
+The model may produce invalid JSON or unsupported tool names; in that case the agent reports an error without executing an unapproved operation. A ready gateway status is not a guarantee of tool-use ability or provider reliability.
+
+## Tests
+
+```powershell
+python -m pip install pytest
+python -m pytest -q tests
+```
+
+Tests verify path restrictions, read tools, required approvals, token validation, rejection, stale-file conflict prevention, and blocked shell commands.
